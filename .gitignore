@@ -1,0 +1,37 @@
+# ── 环境变量 ──
+.env
+.env.local
+.env.production
+
+# ── Go ──
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+auction-server/auction-server
+auction-server/logs/
+
+# ── Node / 前端 ──
+node_modules/
+auction-frontend/node_modules/
+auction-frontend/dist/
+auction-frontend/.vite/
+
+# ── IDE / 编辑器 ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Docker ──
+docker-compose.override.yml
+
+# ── 系统 ──
+*.log
+tmp/

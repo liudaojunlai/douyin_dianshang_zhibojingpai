@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket测试</title>
+</head>
+<body>
+    <h1>WebSocket 在线人数测试</h1>
+    <button onclick="testConnect()">连接到 WebSocket</button>
+    <button onclick="testHTTP()">测试 HTTP 路由</button>
+    <div id="status">未连接</div>
+    <div id="messages"></div>
+
+    <script>
+        let ws;
+
+        async function testHTTP() {
+            const url = "http://localhost:8080/test/http";
+            document.getElementById("status").textContent = "正在请求: " + url;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                document.getElementById("status").textContent = "HTTP请求成功！";
+                addMessage("HTTP响应: " + JSON.stringify(data));
+            } catch (error) {
+                document.getElementById("status").textContent = "HTTP请求失败！";
+                addMessage("HTTP错误: " + error);
+            }
+        }
+
+        function testConnect() {
+            const url = "ws://localhost:8080/test/ws/11";
+            document.getElementById("status").textContent = "正在连接到: " + url;
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = function() {
+                document.getElementById("status").textContent = "连接成功！";
+                addMessage("连接已打开");
+            };
+            
+            ws.onmessage = function(event) {
+                addMessage("收到消息: " + event.data);
+            };
+            
+            ws.onclose = function(event) {
+                document.getElementById("status").textContent = "连接已关闭，代码: " + event.code;
+                addMessage("连接已关闭: " + event.reason);
+            };
+            
+            ws.onerror = function(error) {
+                document.getElementById("status").textContent = "连接出错";
+                addMessage("错误: " + JSON.stringify(error));
+            };
+        }
+
+        function addMessage(msg) {
+            const div = document.createElement('div');
+            div.textContent = new Date().toLocaleTimeString() + " - " + msg;
+            document.getElementById('messages').appendChild(div);
+        }
+    </script>
+</body>
+</html>
