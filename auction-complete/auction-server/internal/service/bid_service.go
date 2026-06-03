@@ -10,10 +10,8 @@ import (
 
 	"auction-server/internal/model"
 	"auction-server/internal/repository"
-	"auction-server/pkg/logger"
 
 	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 )
 
 var nicknameCache sync.Map
@@ -66,9 +64,10 @@ var (
 )
 
 // PlaceBid 出价主流程
-// 三层并发控制：前端防抖 → Redis 分布式锁 → MySQL 乐观锁
+// 三层并发控制：前端防抖 → Redis 分布式锁 → MySQL 乐观锁（事务保护）
 func (s *BidService) PlaceBid(auctionID, userID uint, amount int64) (*BidEvent, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	// ① 用户出价频率限制（每用户每分钟最多 10 次）
 	if err := s.checkRateLimit(ctx, userID); err != nil {
@@ -86,7 +85,7 @@ func (s *BidService) PlaceBid(auctionID, userID uint, amount int64) (*BidEvent, 
 	}
 	defer s.releaseLock(ctx, lockKey, lockVal)
 
-	// ③ 从 Redis 缓存读取竞拍状态（减少 DB 压力）
+	// ③ 读取竞拍状态
 	auction, err := s.auctionRepo.FindByID(auctionID)
 	if err != nil {
 		return nil, errors.New("竞拍不存在")
@@ -120,24 +119,18 @@ func (s *BidService) PlaceBid(auctionID, userID uint, amount int64) (*BidEvent, 
 		}
 	}
 
-	// ⑥ MySQL 乐观锁原子更新价格（version CAS）
-	if err := s.auctionRepo.UpdateCurrentPrice(auctionID, amount, auction.Version, extraUpdates); err != nil {
-		s.incrFailCount(ctx, auctionID)
-		return nil, ErrBidConflict
-	}
-
-	// ⑦ 写入出价记录（只增不改）
+	// ⑥ 事务：乐观锁更新价格 + 写入出价记录（数据一致性保证）
 	bid := &model.Bid{
 		AuctionID: auctionID,
 		UserID:    userID,
 		Amount:    amount,
 	}
-	if err := s.bidRepo.Create(bid); err != nil {
-		logger.Error("出价记录写入失败", zap.Error(err))
-		// 不回滚价格，记录日志即可，不影响主流程
+	if err := s.auctionRepo.UpdateCurrentPriceWithBid(auctionID, amount, auction.Version, extraUpdates, bid); err != nil {
+		s.incrFailCount(ctx, auctionID)
+		return nil, ErrBidConflict
 	}
 
-	// ⑧ 更新 Redis 排行榜
+	// ⑦ 更新 Redis 排行榜
 	s.rdb.ZAdd(ctx, repository.AuctionLeaderboardKey(auctionID), redis.Z{
 		Score:  float64(amount),
 		Member: strconv.FormatUint(uint64(userID), 10),

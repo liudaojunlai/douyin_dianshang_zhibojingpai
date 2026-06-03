@@ -1,9 +1,12 @@
+//go:build forcefix
+
 package main
 
 import (
 	"fmt"
 	"time"
 
+	"auction-server/internal/config"
 	"auction-server/internal/model"
 	"auction-server/internal/repository"
 )
@@ -11,8 +14,9 @@ import (
 func main() {
 	fmt.Println("=== 超级紧急补丁：立刻处理所有已过期的竞拍自动成交 ===")
 
-	repository.InitDB()
-	repository.InitRedis()
+	cfg, _ := config.Load()
+	repository.InitDB(&cfg.DB)
+	repository.InitRedis(&cfg.Redis)
 
 	auctionRepo := repository.NewAuctionRepo()
 	bidRepo := repository.NewBidRepo()

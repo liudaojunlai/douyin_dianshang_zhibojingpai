@@ -17,7 +17,7 @@ auction-server/logs/
 # ── Node / 前端 ──
 node_modules/
 auction-frontend/node_modules/
-auction-frontend/dist/
+dist/
 auction-frontend/.vite/
 
 # ── IDE / 编辑器 ──

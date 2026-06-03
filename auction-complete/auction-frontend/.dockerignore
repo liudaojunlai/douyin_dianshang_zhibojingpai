@@ -1,0 +1,15 @@
+# ── 构建上下文排除 ──
+.git
+.gitignore
+*.md
+.env
+.env.*
+node_modules/
+dist/
+.vite/
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+.DS_Store

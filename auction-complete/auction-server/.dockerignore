@@ -1,0 +1,19 @@
+# ── 构建上下文排除 ──
+.git
+.gitignore
+*.md
+.env
+.env.*
+logs/
+tmp/
+
+# ── Go ──
+*.exe
+*.test
+*.out
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+.DS_Store

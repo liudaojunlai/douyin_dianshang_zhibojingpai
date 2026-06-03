@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { ApiResponse } from '@/types'
+import { useAuthStore } from '@/stores/authStore'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -19,6 +20,9 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      // 同步清除 Zustand 状态，防止 UI 显示登录后数据
+      useAuthStore.getState().logout()
       window.location.href = '/login'
     }
     return Promise.reject(err)

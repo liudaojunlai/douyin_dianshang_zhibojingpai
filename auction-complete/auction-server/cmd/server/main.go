@@ -47,14 +47,26 @@ func main() {
 	r := gin.New()
 	r.Use(middleware.Recovery())
 	r.Use(middleware.RequestLogger())
+
+	// CORS：生产环境限制域名，开发环境放行
+	corsOrigins := []string{"*"}
+	if cfg.App.Env == "production" {
+		corsOrigins = []string{
+			"http://localhost:80",
+			"http://localhost:3000",
+			"http://127.0.0.1:80",
+			"http://127.0.0.1:3000",
+		}
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
-		MaxAge:       12 * time.Hour,
+		AllowOrigins:  corsOrigins,
+		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders: []string{"Content-Length"},
+		MaxAge:        12 * time.Hour,
 	}))
 
-	registerRoutes(r)
+	registerRoutes(r, cfg)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "env": cfg.App.Env})
 	})
@@ -71,26 +83,30 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logger.Info("正在关闭服务...")
-	
-	// 通知 Hub 进行优雅关闭
+
+	// 通知调度器优雅退出
+	scheduler.Stop()
+	// 通知 Hub 优雅关闭
 	close(ws.GlobalHub.QuitChan)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	srv.Shutdown(ctx)
 	logger.Info("服务已关闭")
 }
 
-func registerRoutes(r *gin.Engine) {
+func registerRoutes(r *gin.Engine, cfg *config.Config) {
 	authH    := handler.NewAuthHandler()
 	auctionH := handler.NewAuctionHandler()
 	bidH     := handler.NewBidHandler(ws.GlobalHub)
 	orderH   := handler.NewOrderHandler()
 	monitorH := handler.NewMonitorHandler()
 
-	// 测试路由
-	r.GET("/test/http", ws.TestHTTP)
-	r.GET("/test/ws/:id", ws.ServeWSTest)
+	// 测试路由：仅开发环境注册
+	if cfg.App.Env != "production" {
+		r.GET("/test/http", ws.TestHTTP)
+		r.GET("/test/ws/:id", ws.ServeWSTest)
+	}
 
 	api := r.Group("/api")
 

@@ -22,6 +22,11 @@ const (
 
 // writePump 从 send 通道取消息写入 WebSocket
 func (c *Client) writePump() {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("writePump panic 恢复", zap.Any("recover", r))
+		}
+	}()
 	heartbeatInterval := time.Duration(config.Global.WS.HeartbeatInterval) * time.Second
 	ticker := time.NewTicker(heartbeatInterval)
 	defer func() {
@@ -54,6 +59,11 @@ func (c *Client) writePump() {
 
 // readPump 读取客户端消息，更新心跳超时
 func (c *Client) readPump() {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("readPump panic 恢复", zap.Any("recover", r))
+		}
+	}()
 	heartbeatTimeout := time.Duration(config.Global.WS.HeartbeatTimeout) * time.Second
 	defer func() {
 		c.hub.unregister <- c

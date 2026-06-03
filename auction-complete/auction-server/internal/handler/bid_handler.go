@@ -6,9 +6,11 @@ import (
 
 	"auction-server/internal/middleware"
 	"auction-server/internal/service"
+	"auction-server/pkg/logger"
 	"auction-server/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type BidHandler struct {
@@ -58,11 +60,23 @@ func (h *BidHandler) PlaceBid(c *gin.Context) {
 
 	// 广播出价事件给房间所有人
 	if h.hub != nil {
-		go h.hub.BroadcastBid(event)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("BroadcastBid panic", zap.Any("recover", r))
+				}
+			}()
+			h.hub.BroadcastBid(event)
+		}()
 
 		// 封顶价触发自动成交
 		if event.CapReached {
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Error("auto order goroutine panic", zap.Any("recover", r))
+					}
+				}()
 				orderSvc := service.NewOrderService()
 				order, oErr := orderSvc.CreateOrder(uint(auctionID), event.UserID, event.Amount)
 				if oErr == nil {

@@ -33,7 +33,7 @@ func isOriginAllowed(origin string) bool {
 			return true
 		}
 	}
-	return true // 开发阶段临时放行，生产环境改为 return false
+	return false
 }
 
 var upgrader = websocket.Upgrader{

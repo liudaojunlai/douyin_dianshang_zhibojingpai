@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -92,11 +93,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// DSN 生成 MySQL 连接字符串
+// DSN 生成 MySQL 连接字符串（密码经过 URL 编码，防止特殊字符破坏 DSN）
 func (c *DBConfig) DSN() string {
 	return fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		c.User, c.Password, c.Host, c.Port, c.Name,
+		c.User, url.QueryEscape(c.Password), c.Host, c.Port, c.Name,
 	)
 }
 

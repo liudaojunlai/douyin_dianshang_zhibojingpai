@@ -171,6 +171,11 @@ func (h *Hub) Run() {
 
 			clientCopy := client
 			go func(c *Client, currentCount int) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Error("注册客户端 goroutine panic", zap.Any("recover", r))
+					}
+				}()
 				auctionRepo := repository.NewAuctionRepo()
 				auction, err := auctionRepo.FindByID(c.auctionID)
 				if err == nil && auction != nil {
@@ -357,7 +362,10 @@ func (h *Hub) broadcastToRoom(auctionID uint, event string, data any) {
 	select {
 	case h.broadcastCh <- task:
 	default:
-		go func() { h.broadcastCh <- task }()
+		logger.Warn("广播通道已满，丢弃消息",
+			zap.String("event", event),
+			zap.Uint("auction_id", auctionID),
+		)
 	}
 }
 
@@ -383,7 +391,10 @@ func (h *Hub) notifyOvertaken(event *service.BidEvent) {
 	select {
 	case h.broadcastCh <- task:
 	default:
-		go func() { h.broadcastCh <- task }()
+		logger.Warn("notice channel full, dropping message",
+			zap.String("event", EventBidOvertaken),
+			zap.Uint("auction_id", event.AuctionID),
+		)
 	}
 }
 

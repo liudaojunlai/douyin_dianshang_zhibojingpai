@@ -1,3 +1,5 @@
+//go:build initdata
+
 package main
 
 import (

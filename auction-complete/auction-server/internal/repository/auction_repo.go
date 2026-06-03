@@ -112,4 +112,31 @@ func (r *AuctionRepo) UpdateStatusForce(id uint, newStatusStr string, updates ma
 	return r.db.Model(&model.Auction{}).Where("id = ?", id).Updates(updates).Error
 }
 
+// UpdateCurrentPriceWithBid 原子操作：乐观锁更新价格 + 创出价记录（事务保护）
+func (r *AuctionRepo) UpdateCurrentPriceWithBid(id uint, newPrice int64, version int, extraUpdates map[string]any, bid *model.Bid) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"current_price": newPrice,
+			"version":       version + 1,
+		}
+		for k, v := range extraUpdates {
+			updates[k] = v
+		}
+		result := tx.Model(&model.Auction{}).
+			Where("id = ? AND version = ? AND status = ?", id, version, model.AuctionActive).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrVersionConflict
+		}
+		// 写入出价记录（与价格更新在同一事务中）
+		if err := tx.Create(bid).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 var ErrVersionConflict = gorm.ErrDuplicatedKey // 复用 gorm 错误，实际判断用 errors.Is

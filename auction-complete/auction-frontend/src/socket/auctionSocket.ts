@@ -11,6 +11,7 @@ class AuctionSocket {
   private shouldReconnect = false
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private reconnectAttempts = 0
+  private onlineHandler: (() => void) | null = null
 
   connect(auctionId: number, token: string) {
     this.auctionId = auctionId
@@ -79,13 +80,14 @@ class AuctionSocket {
       console.error('[WS] 发生错误')
     }
 
-    if ('ononline' in window) {
-      window.addEventListener('online', () => {
+    if ('ononline' in window && !this.onlineHandler) {
+      this.onlineHandler = () => {
         console.log('[WS] 网络恢复，立刻重连')
         if (this.shouldReconnect && this.ws?.readyState !== WebSocket.OPEN) {
           this._immediateReconnect()
         }
-      })
+      }
+      window.addEventListener('online', this.onlineHandler)
     }
   }
 
@@ -153,6 +155,10 @@ class AuctionSocket {
       this.ws.onclose = null
       this.ws.close()
       this.ws = null
+    }
+    if (this.onlineHandler) {
+      window.removeEventListener('online', this.onlineHandler)
+      this.onlineHandler = null
     }
     this.handlers.clear()
   }
