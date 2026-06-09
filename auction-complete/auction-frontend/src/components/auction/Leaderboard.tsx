@@ -80,7 +80,7 @@ export default function Leaderboard({ entries, onClose }: Props) {
                       {MEDALS[i]}
                     </span>
                     <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>
-                      用户{entry.userId.slice(-4)}
+                      {entry.nickname || `用户${entry.userId.slice(-4)}`}
                     </span>
                     <span style={{ fontWeight: 900, color: i === 0 ? '#fbbf24' : '#cbd5e1', fontSize: 18 }}>
                       ¥{(entry.amount / 100).toFixed(0)}
@@ -108,7 +108,7 @@ export default function Leaderboard({ entries, onClose }: Props) {
                       {i + 4}
                     </span>
                     <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#cbd5e1' }}>
-                      用户{entry.userId.slice(-4)}
+                      {entry.nickname || `用户${entry.userId.slice(-4)}`}
                     </span>
                     <span style={{ fontWeight: 700, color: '#94a3b8', fontSize: 15 }}>
                       ¥{(entry.amount / 100).toFixed(0)}

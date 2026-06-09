@@ -10,7 +10,8 @@ interface Props {
   myLastBid?: number
   winnerId?: number
   userId?: number
-  onBidSuccess?: () => void
+  leaderNickname?: string   // 当前领先者昵称
+  onBidSuccess?: (amount: number) => void
   onBidFail?: (msg: string) => void
   onClose?: () => void
 }
@@ -30,7 +31,7 @@ function fmtTime(ms: number) {
 
 export default function BidModal({
   auction, currentPrice, remainMs, sold, myLastBid = 0,
-  winnerId, userId, onBidSuccess, onBidFail, onClose
+  winnerId, userId, leaderNickname, onBidSuccess, onBidFail, onClose
 }: Props) {
   const minBid = currentPrice + auction.increment
   const [amount, setAmount] = useState(minBid)
@@ -41,6 +42,7 @@ export default function BidModal({
   const [showHighBidTip, setShowHighBidTip] = useState(false)
   const [showHighestTip, setShowHighestTip] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
+  const [myBidAmount, setMyBidAmount] = useState(myLastBid)
 
   useEffect(() => {
     setAmount(prev => Math.max(prev, minBid))
@@ -70,6 +72,12 @@ export default function BidModal({
     }
   }, [amount, currentPrice, auction.increment, sold, winnerId, userId, myLastBid])
 
+  useEffect(() => {
+    if (myLastBid > 0 && myLastBid !== myBidAmount) {
+      setMyBidAmount(myLastBid)
+    }
+  }, [myLastBid])
+
   const handleBid = useCallback(async () => {
     if (sold) return
     const now = Date.now()
@@ -86,7 +94,8 @@ export default function BidModal({
     setError('')
     try {
       await bidApi.placeBid(auction.id, bidAmount)
-      onBidSuccess?.()
+      setMyBidAmount(bidAmount)
+      onBidSuccess?.(bidAmount)
       setAmount(bidAmount + auction.increment)
     } catch (err: any) {
       const msg = err.response?.data?.message || '出价失败，请重试'
@@ -99,6 +108,7 @@ export default function BidModal({
 
   const isHighest = winnerId === userId
   const diff = amount - currentPrice
+  const leaderName = leaderNickname || (isHighest && myLastBid > 0 ? '你' : '领先者')
 
   const images = (() => { try { return JSON.parse(auction.product?.images || '[]') } catch { return [] } })()
 
@@ -264,11 +274,8 @@ export default function BidModal({
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: 60 }}>📦</div>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: 34, color: '#1a1a2e', fontWeight: 900, marginBottom: 18, lineHeight: 1.2 }}>
-              {auction.product?.name || '金镶玉平安扣和田玉吊坠项链首饰'}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 22, color: '#999' }}>当前价</span>
@@ -281,19 +288,22 @@ export default function BidModal({
                       fontWeight: 700,
                       boxShadow: '0 2px 10px rgba(255,36,66,0.35)'
                     }}>
-                      张
+                      {leaderName[0] || '?'}
                     </div>
-                    <span style={{ fontSize: 26, color: '#ff2442', fontWeight: 900, background: 'rgba(255,36,66,0.12)', padding: '6px 14px', borderRadius: 24 }}>张** 领先</span>
+                    <span style={{ fontSize: 26, color: '#ff2442', fontWeight: 900, background: 'rgba(255,36,66,0.12)', padding: '6px 14px', borderRadius: 24 }}>{leaderName} 领先</span>
                   </div>
                 </div>
                 <div style={{ fontSize: 68, fontWeight: 900, color: '#0a0a0a', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', marginTop: 8 }} className="price-text-glow">
                   {fmtMoney(currentPrice)}
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 22, color: '#999', marginBottom: 10 }}>我的出价</div>
-                <div style={{ fontSize: 56, color: '#c0c0c0', fontWeight: 800 }}>
-                  {myLastBid > 0 ? fmtMoney(myLastBid) : '暂无出价'}
+              <div style={{ textAlign: 'right', maxWidth: '45%' }}>
+                <div style={{ fontSize: 28, color: '#1a1a2e', fontWeight: 900, lineHeight: 1.2, marginBottom: 10 }}>
+                  {auction.product?.name || '金镶玉平安扣和田玉吊坠项链首饰'}
+                </div>
+                <div style={{ fontSize: 22, color: '#999', marginBottom: 6 }}>我的出价</div>
+                <div style={{ fontSize: 48, color: '#c0c0c0', fontWeight: 800 }}>
+                  {myBidAmount > 0 ? fmtMoney(myBidAmount) : '暂无出价'}
                 </div>
               </div>
             </div>

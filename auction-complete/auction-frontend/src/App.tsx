@@ -1,4 +1,5 @@
-import { Component, BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Component } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 

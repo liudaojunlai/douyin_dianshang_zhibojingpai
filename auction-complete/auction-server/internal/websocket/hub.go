@@ -29,8 +29,8 @@ const (
 	EventCommentNew        = "comment:new"
 	EventCommentHistory    = "comment:history"
 
-	workerPoolSize      = 16
-	taskBufferSize      = 1024
+	workerPoolSize      = 64
+	taskBufferSize      = 4096
 	maxCommentHistory   = 50
 )
 
@@ -49,6 +49,7 @@ type Message struct {
 type BroadcastTask struct {
 	clients []*Client
 	msg     []byte
+	pool    *[]*Client // 归还池，减少 GC
 }
 
 type Client struct {
@@ -59,6 +60,13 @@ type Client struct {
 	auctionID uint
 	mu        sync.Mutex
 	closed    bool
+}
+
+// AuctionCacheItem 缓存的竞拍快照，避免注册时查 DB
+type AuctionCacheItem struct {
+	ID           uint
+	CurrentPrice int64
+	EndTime      *time.Time
 }
 
 type Hub struct {
@@ -72,6 +80,9 @@ type Hub struct {
 	QuitChan        chan struct{} // 公开导出，供外部优雅关闭调用
 	nicknameCache   sync.Map           // 预加载用户昵称缓存 userID -> nickname
 	commentHistory  map[uint][]CommentItem // 各拍卖房间的历史评论缓存
+	auctionCache    sync.Map           // auctionID -> *AuctionCacheItem，避免注册时查库
+
+	clientPool sync.Pool // 广播时复用 client slice
 }
 
 var GlobalHub = newHub()
@@ -80,12 +91,18 @@ func newHub() *Hub {
 	quit := make(chan struct{})
 	h := &Hub{
 		rooms:          make(map[uint]map[*Client]bool),
-		register:       make(chan *Client, 256),
-		unregister:     make(chan *Client, 256),
+		register:       make(chan *Client, 4096),
+		unregister:     make(chan *Client, 4096),
 		broadcastCh:    make(chan BroadcastTask, taskBufferSize),
 		quitChan:       quit,
 		QuitChan:       quit,
 		commentHistory: make(map[uint][]CommentItem),
+		clientPool: sync.Pool{
+			New: func() any {
+				s := make([]*Client, 0, 512)
+				return &s
+			},
+		},
 	}
 
 	for i := 0; i < workerPoolSize; i++ {
@@ -106,6 +123,11 @@ func (h *Hub) broadcastWorker() {
 			}
 			for _, client := range task.clients {
 				client.safeSend(task.msg)
+			}
+			// 归还 client slice 到池
+			if task.pool != nil {
+				*task.pool = (*task.pool)[:0]
+				h.clientPool.Put(task.pool)
 			}
 		case <-h.quitChan:
 			return
@@ -176,14 +198,36 @@ func (h *Hub) Run() {
 						logger.Error("注册客户端 goroutine panic", zap.Any("recover", r))
 					}
 				}()
-				auctionRepo := repository.NewAuctionRepo()
-				auction, err := auctionRepo.FindByID(c.auctionID)
-				if err == nil && auction != nil {
+
+				// 从缓存读取竞拍数据，避免注册洪峰时打爆 DB
+				var currentPrice int64
+				var endTime *time.Time
+				if v, ok := h.auctionCache.Load(c.auctionID); ok {
+					if cache, ok := v.(*AuctionCacheItem); ok {
+						currentPrice = cache.CurrentPrice
+						endTime = cache.EndTime
+					}
+				} else {
+					// 缓存未命中才查库
+					auctionRepo := repository.NewAuctionRepo()
+					auction, err := auctionRepo.FindByID(c.auctionID)
+					if err == nil && auction != nil {
+						currentPrice = auction.CurrentPrice
+						endTime = auction.EndTime
+						h.auctionCache.Store(c.auctionID, &AuctionCacheItem{
+							ID:           auction.ID,
+							CurrentPrice: auction.CurrentPrice,
+							EndTime:      auction.EndTime,
+						})
+					}
+				}
+
+				if currentPrice > 0 {
 					currentPriceMsg := encode(Message{
 						Event: EventBidNew,
 						Data: map[string]interface{}{
-							"auction_id":    auction.ID,
-							"current_price": auction.CurrentPrice,
+							"auction_id":    c.auctionID,
+							"current_price": currentPrice,
 							"extended":      false,
 							"extend_secs":   0,
 						},
@@ -203,10 +247,10 @@ func (h *Hub) Run() {
 
 				now := time.Now().UnixMilli()
 				var remainMs int64
-				if auction != nil && auction.EndTime != nil {
-					endTime := auction.EndTime.UnixMilli()
-					if endTime > now {
-						remainMs = endTime - now
+				if endTime != nil {
+					endTimeMs := endTime.UnixMilli()
+					if endTimeMs > now {
+						remainMs = endTimeMs - now
 					}
 				}
 				timerMsg := encode(Message{
@@ -279,6 +323,14 @@ func (h *Hub) Run() {
 
 func (h *Hub) BroadcastBid(event *service.BidEvent) {
 	logger.Info("广播出价事件", zap.Uint("auction_id", event.AuctionID), zap.Int64("current_price", event.Amount))
+
+	// 更新竞拍缓存
+	h.auctionCache.Store(event.AuctionID, &AuctionCacheItem{
+		ID:           event.AuctionID,
+		CurrentPrice: event.Amount,
+		EndTime:      event.NewEndTime,
+	})
+
 	h.broadcastToRoom(event.AuctionID, EventBidNew, event)
 
 	bidSvc := service.NewBidService()
@@ -343,25 +395,36 @@ func (h *Hub) BroadcastTimerSync(auctionID uint, remainMs int64, serverTs int64)
 
 func (h *Hub) broadcastToRoom(auctionID uint, event string, data any) {
 	msg := encode(Message{Event: event, Data: data})
+
+	ptr := h.clientPool.Get().(*[]*Client)
 	h.mu.RLock()
-	clients := make([]*Client, 0, len(h.rooms[auctionID]))
-	for c := range h.rooms[auctionID] {
-		clients = append(clients, c)
+	room := h.rooms[auctionID]
+	roomSize := len(room)
+	if cap(*ptr) < roomSize {
+		*ptr = make([]*Client, 0, roomSize+256)
+	}
+	*ptr = (*ptr)[:0]
+	for c := range room {
+		*ptr = append(*ptr, c)
 	}
 	h.mu.RUnlock()
 
 	logger.Debug("广播消息到房间",
 		zap.Uint("auction_id", auctionID),
 		zap.String("event", event),
-		zap.Int("client_count", len(clients)))
+		zap.Int("client_count", roomSize))
 
 	task := BroadcastTask{
-		clients: clients,
+		clients: *ptr,
 		msg:     msg,
+		pool:    ptr, // 告知 worker 用完后归还
 	}
 	select {
 	case h.broadcastCh <- task:
 	default:
+		// 归还池，避免泄漏
+		*ptr = (*ptr)[:0]
+		h.clientPool.Put(ptr)
 		logger.Warn("广播通道已满，丢弃消息",
 			zap.String("event", event),
 			zap.Uint("auction_id", auctionID),
@@ -370,11 +433,17 @@ func (h *Hub) broadcastToRoom(auctionID uint, event string, data any) {
 }
 
 func (h *Hub) notifyOvertaken(event *service.BidEvent) {
+	ptr := h.clientPool.Get().(*[]*Client)
 	h.mu.RLock()
-	clients := make([]*Client, 0, len(h.rooms[event.AuctionID]))
-	for c := range h.rooms[event.AuctionID] {
+	room := h.rooms[event.AuctionID]
+	roomSize := len(room)
+	if cap(*ptr) < roomSize {
+		*ptr = make([]*Client, 0, roomSize+256)
+	}
+	*ptr = (*ptr)[:0]
+	for c := range room {
 		if c.userID != event.UserID {
-			clients = append(clients, c)
+			*ptr = append(*ptr, c)
 		}
 	}
 	h.mu.RUnlock()
@@ -385,12 +454,15 @@ func (h *Hub) notifyOvertaken(event *service.BidEvent) {
 	}})
 
 	task := BroadcastTask{
-		clients: clients,
+		clients: *ptr,
 		msg:     msg,
+		pool:    ptr,
 	}
 	select {
 	case h.broadcastCh <- task:
 	default:
+		*ptr = (*ptr)[:0]
+		h.clientPool.Put(ptr)
 		logger.Warn("notice channel full, dropping message",
 			zap.String("event", EventBidOvertaken),
 			zap.Uint("auction_id", event.AuctionID),

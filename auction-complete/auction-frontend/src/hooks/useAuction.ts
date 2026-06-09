@@ -7,6 +7,7 @@ export interface LeaderboardEntry {
   userId: string
   amount: number
   rank: number
+  nickname?: string
 }
 
 export interface CommentEntry {
@@ -44,8 +45,7 @@ let notifId = 0
 export function useAuction(auctionId: number, initialAuction: Auction | null) {
   const token = useAuthStore(s => s.token)
   const user  = useAuthStore(s => s.user)
-  const prevInitialAuctionRef = useRef<Auction | null>(null)
-
+  const prevEndTimeRef = useRef<string | undefined>()
   const absoluteEndTsRef = useRef(0)
 
   const [state, setState] = useState<AuctionState>({
@@ -66,21 +66,24 @@ export function useAuction(auctionId: number, initialAuction: Auction | null) {
   })
 
   useEffect(() => {
-    if (initialAuction && !prevInitialAuctionRef.current) {
-      setState(s => ({
-        ...s,
-        auction: initialAuction,
-        currentPrice: initialAuction.current_price,
-        endTime: initialAuction.end_time ? new Date(initialAuction.end_time) : null,
-        sold: initialAuction.status === 'sold',
-        cancelled: initialAuction.status === 'cancelled',
-        extendCount: initialAuction.extend_count ?? 0,
-      }))
-      if (initialAuction.end_time) {
-        absoluteEndTsRef.current = new Date(initialAuction.end_time).getTime()
+    if (!initialAuction) return
+    setState(s => ({
+      ...s,
+      auction: initialAuction,
+      currentPrice: initialAuction.current_price,
+      endTime: initialAuction.end_time ? new Date(initialAuction.end_time) : null,
+      sold: initialAuction.status === 'sold',
+      cancelled: initialAuction.status === 'cancelled',
+      extendCount: initialAuction.extend_count ?? 0,
+    }))
+    // 当 API 返回的截止时间与当前不同时，更新倒计时
+    if (initialAuction.end_time && initialAuction.end_time !== prevEndTimeRef.current) {
+      const newEnd = new Date(initialAuction.end_time).getTime()
+      if (newEnd !== absoluteEndTsRef.current) {
+        absoluteEndTsRef.current = newEnd
       }
+      prevEndTimeRef.current = initialAuction.end_time
     }
-    prevInitialAuctionRef.current = initialAuction
   }, [initialAuction])
 
   const addNotif = useCallback((type: Notification['type'], message: string) => {
@@ -116,9 +119,10 @@ export function useAuction(auctionId: number, initialAuction: Auction | null) {
 
     auctionSocket.on('rank:update', (data: any[]) => {
       const board = data.map((e: any, i: number) => ({
-        userId: String(e.Member ?? e.userId),
-        amount: e.Score ?? e.amount,
-        rank: i + 1,
+        userId: String(e.user_id ?? '0'),
+        amount: e.amount ?? 0,
+        rank: e.rank ?? i + 1,
+        nickname: e.nickname ?? undefined,
       }))
       const topPrice = board.length > 0 ? board[0].amount : 0
       setState(s => ({
@@ -131,18 +135,19 @@ export function useAuction(auctionId: number, initialAuction: Auction | null) {
     auctionSocket.on('timer:sync', (data: TimerSyncData) => {
       const serverNow = data.server_ts
       const newAbsoluteEnd = serverNow + data.remain_ms
-      
-      setState(s => ({
-        ...s,
-        remainMs: data.remain_ms,
-        gotFirstTimerSync: true
-      }))
-      
+
+      // 仅同步服务端绝对截止时间，remainMs 由本地 1s 定时器统一计算
+      // 避免两个来源同时更新 remainMs 导致数字跳动
       if (newAbsoluteEnd > absoluteEndTsRef.current) {
         absoluteEndTsRef.current = newAbsoluteEnd
       } else if (absoluteEndTsRef.current === 0) {
         absoluteEndTsRef.current = newAbsoluteEnd
       }
+
+      setState(s => ({
+        ...s,
+        gotFirstTimerSync: true
+      }))
     })
 
     auctionSocket.on('timer:extend', (data: TimerExtendData) => {

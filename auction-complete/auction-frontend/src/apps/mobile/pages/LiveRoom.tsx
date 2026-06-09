@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { auctionApi } from '@/services/api'
@@ -9,6 +9,7 @@ import BidModal from '@/components/auction/BidModal'
 import AuctionResultModal from '@/components/auction/AuctionResultModal'
 import BidPanel from '@/components/auction/BidPanel'
 import Leaderboard from '@/components/auction/Leaderboard'
+import LiveVideoPlayer from '@/components/auction/LiveVideoPlayer'
 import type { Auction } from '@/types'
 
 export default function LiveRoomPage() {
@@ -23,7 +24,6 @@ export default function LiveRoomPage() {
   const [showResultModal, setShowResultModal] = useState(false)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
-  const [myLastBid, setMyLastBid] = useState(0)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['auction', auctionId],
@@ -62,7 +62,10 @@ export default function LiveRoomPage() {
   const { state, addNotif, sendComment } = useAuction(auctionId, safeAuction)
   const [inputText, setInputText] = useState('')
   const commentsEndRef = useRef<HTMLDivElement>(null)
-  const auction = state.auction || safeAuction
+  const commentsContainerRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
+  // 优先使用 API 返回的数据（含完整 seller 信息），WebSocket 状态仅更新价格/倒计时等
+  const auction = safeAuction
 
   useEffect(() => {
     if (state.currentPrice > prevPriceRef.current && prevPriceRef.current > 0) {
@@ -79,9 +82,6 @@ export default function LiveRoomPage() {
   }, [state.sold, state.soldData])
 
   const isActive = auction.status === 'active'
-  const images: string[] = (() => {
-    try { return JSON.parse(auction.product?.images || '[]') } catch { return [] }
-  })()
 
   const handleSelectAuction = (a: Auction) => {
     setSelectedAuction(a)
@@ -89,9 +89,7 @@ export default function LiveRoomPage() {
     setTimeout(() => setShowBidModal(true), 250)
   }
 
-  const handleBidSuccess = () => {
-    const bidAmount = Math.max(showBidModal && selectedAuction ? selectedAuction.current_price + selectedAuction.increment : auction.current_price + auction.increment)
-    setMyLastBid(bidAmount)
+  const handleBidSuccess = (actualAmount: number) => {
     addNotif('bid_success', '出价成功！')
   }
 
@@ -103,13 +101,34 @@ export default function LiveRoomPage() {
     }
   }
 
+  // 检测用户是否在评论区底部附近
+  const handleScroll = useCallback(() => {
+    const el = commentsContainerRef.current
+    if (!el) return
+    const threshold = 60
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+  }, [])
+
   useEffect(() => {
-    if (commentsEndRef.current) {
+    const el = commentsContainerRef.current
+    if (!el) return
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
+  useEffect(() => {
+    if (isNearBottomRef.current && commentsEndRef.current) {
       commentsEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [state.comments])
 
   const currentPriceYuan = state.currentPrice / 100
+  // 当前领先者昵称（从排行榜取第1名）
+  const leaderNickname = state.leaderboard.length > 0
+    ? state.leaderboard[0].userId === String(user?.id) ? '你' : (state.leaderboard[0].nickname || `用户${state.leaderboard[0].userId}`)
+    : undefined
+  // 我的出价金额（从排行榜实时获取，刷新后依然保留）
+  const myLastBid = state.leaderboard.find(e => e.userId === String(user?.id))?.amount || 0
 
   if (isLoading && !data) {
     return (
@@ -164,24 +183,19 @@ export default function LiveRoomPage() {
         .fade-in {
           animation: fadeIn 0.3s ease;
         }
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
       `}</style>
 
       <div style={{
         position: 'relative', height: '50vh', minHeight: 320,
         overflow: 'hidden', background: '#000'
       }}>
-        {images[0] ? (
-          <img src={images[0]} alt="" style={{
-            width: '100%', height: '100%', objectFit: 'cover'
-          }} />
-        ) : (
-          <div style={{
-            width: '100%', height: '100%', display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            background: '#000'
-          }}>
-          </div>
-        )}
+        <LiveVideoPlayer
+          anchorName={auction.product?.seller?.nickname || '主播'}
+          onlineCount={state.onlineCount}
+        />
 
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: 180,
@@ -205,11 +219,11 @@ export default function LiveRoomPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: '#fff', fontSize: 20, fontWeight: 700
             }}>
-              {auction.product?.seller?.nickname?.[0] || '马'}
+              {auction.product?.seller?.nickname?.[0] || '主'}
             </div>
             <div>
               <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>
-                {auction.product?.seller?.nickname || '马大瓜瓜'}
+                {auction.product?.seller?.nickname || '主播'}
               </div>
               <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
                 {state.onlineCount || 6.8}万本场点赞
@@ -281,20 +295,6 @@ export default function LiveRoomPage() {
           <span style={{ color: '#fbbf24', fontSize: 18 }}>●</span>
           <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>更多直播</span>
           <span style={{ color: '#fff', fontSize: 16 }}>›</span>
-        </div>
-
-        <div style={{
-          position: 'absolute', top: '50%', right: 16, transform: 'translateY(-50%)',
-          zIndex: 10
-        }}>
-          <div style={{
-            writingMode: 'vertical-rl', color: '#fff', fontSize: 18,
-            background: 'linear-gradient(180deg, #a855f7 0%, #6366f1 100%)',
-            padding: '16px 10px', borderRadius: 16, fontWeight: 700,
-            letterSpacing: 4
-          }}>
-            活动名
-          </div>
         </div>
       </div>
 
@@ -375,6 +375,40 @@ export default function LiveRoomPage() {
           </div>
         )}
 
+        {/* 商品图片 */}
+        {(() => {
+          try {
+            const imgs: string[] = JSON.parse(auction.product?.images || '[]')
+            if (imgs.length > 0) {
+              return (
+                <div style={{
+                  margin: '0 16px 12px', borderRadius: 16,
+                  overflow: 'hidden', height: 200,
+                  background: 'rgba(255,255,255,0.05)',
+                  position: 'relative'
+                }}>
+                  <img src={imgs[0]} alt={auction.product?.name || ''}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <div style={{
+                    position: 'absolute', top: '50%', right: 0,
+                    transform: 'translateY(-50%)',
+                    padding: '12px 18px',
+                    background: 'rgba(0,0,0,0.92)',
+                    borderRadius: '20px 0 0 20px',
+                    maxWidth: '65%',
+                    border: '1px solid rgba(255,255,255,0.15)'
+                  }}>
+                    <span style={{ color: '#fff', fontSize: 16, fontWeight: 700, textAlign: 'right', display: 'block' }}>
+                      {auction.product?.name || ''}
+                    </span>
+                  </div>
+                </div>
+              )
+            }
+          } catch {}
+          return null
+        })()}
+
         {state.extendCount > 0 && (
           <div style={{
             margin: '0 16px 12px', padding: '12px 16px',
@@ -386,17 +420,27 @@ export default function LiveRoomPage() {
           </div>
         )}
 
+        {/* 评论区 — 底部浮层，可滚动查看历史 */}
         <div style={{
-          flex: 1, padding: '0 12px', overflowY: 'auto',
-          display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 8 }}>
+          position: 'absolute', left: 0, right: 0,
+          bottom: 76, maxHeight: '40%', zIndex: 30,
+          padding: '24px 12px 0',
+          overflowY: 'scroll',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          display: 'flex', flexDirection: 'column',
+          WebkitOverflowScrolling: 'touch',
+          background: 'linear-gradient(transparent, rgba(0,0,0,0.15) 30%)'
+        }} ref={commentsContainerRef}
+        className="hide-scrollbar">
+          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 4 }}>
             {state.comments.map((comment, i) => (
               <div key={`${comment.timestamp}-${i}`} className="float-in" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 10,
-                background: 'rgba(0,0,0,0.45)', borderRadius: 24,
-                padding: '8px 14px 8px 8px', alignSelf: 'flex-start',
-                backdropFilter: 'blur(6px)'
+                background: 'rgba(0,0,0,0.5)', borderRadius: 22,
+                padding: '6px 14px 6px 6px', alignSelf: 'flex-start',
+                backdropFilter: 'blur(8px)',
+                maxWidth: '85%'
               }}>
                 <div style={{
                   width: 32, height: 32, borderRadius: '50%',
@@ -512,6 +556,7 @@ export default function LiveRoomPage() {
           myLastBid={myLastBid}
           winnerId={state.soldData?.winner_id}
           userId={user?.id}
+          leaderNickname={leaderNickname}
           onBidSuccess={handleBidSuccess}
           onBidFail={(msg) => addNotif('overtaken', msg)}
           onClose={() => setShowBidModal(false)}

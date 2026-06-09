@@ -171,7 +171,7 @@ export default function ProductListPanel({ currentAuctionId, sellerId, onSelectA
                         </span>
                         {a.status === 'active' && (
                           <span style={{ fontSize: 12, color: '#999' }}>
-                            距截拍还剩 10:23
+                            距截拍还剩 <RemainTime endTime={a.end_time} />
                           </span>
                         )}
                       </div>
@@ -216,4 +216,24 @@ export default function ProductListPanel({ currentAuctionId, sellerId, onSelectA
       </div>
     </div>
   )
+}
+
+/** 实时倒计时组件：根据 end_time 每秒更新剩余时间 */
+function RemainTime({ endTime }: { endTime?: string | null }) {
+  const [remain, setRemain] = useState(0)
+
+  useEffect(() => {
+    if (!endTime) return
+    const update = () => {
+      const ms = new Date(endTime).getTime() - Date.now()
+      setRemain(Math.max(0, Math.floor(ms / 1000)))
+    }
+    update()
+    const timer = setInterval(update, 1000)
+    return () => clearInterval(timer)
+  }, [endTime])
+
+  const m = Math.floor(remain / 60)
+  const s = remain % 60
+  return <>{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</>
 }

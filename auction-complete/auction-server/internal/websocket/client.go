@@ -127,7 +127,7 @@ func (c *Client) readPump() {
 					continue
 				}
 
-				// 评论频率限制：60秒内最多5条
+				// 评论频率限制：60秒内最多30条
 				ctx := context.Background()
 				rateKey := repository.UserCommentRateKey(c.userID)
 				count, err := repository.RDB.Incr(ctx, rateKey).Result()
@@ -139,7 +139,7 @@ func (c *Client) readPump() {
 					if count == 1 {
 						repository.RDB.Expire(ctx, rateKey, 60*time.Second)
 					}
-					if count > 5 {
+					if count > 30 {
 						logger.Warn("用户评论频率超限", zap.Uint("user_id", c.userID))
 						continue
 					}
