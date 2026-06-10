@@ -141,9 +141,14 @@ paimai/                          # 仓库根目录
 
 ## 💪 压力测试
 
+内置 10000 人并发竞拍压力测试脚本：
+
 ```bash
 cd auction-complete/auction-server
-go run scripts/stress.go  # 修改 targetAuctionID 为目标竞拍 ID
+# 1000 人测试
+go run scripts/stress.go
+# 10000 人全量测试
+go run scripts/stress_10k.go
 ```
 
 ---
