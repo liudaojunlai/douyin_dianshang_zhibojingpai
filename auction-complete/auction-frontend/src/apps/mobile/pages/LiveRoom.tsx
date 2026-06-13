@@ -7,7 +7,6 @@ import { useAuthStore } from '@/stores/authStore'
 import ProductListPanel from '@/components/auction/ProductListPanel'
 import BidModal from '@/components/auction/BidModal'
 import AuctionResultModal from '@/components/auction/AuctionResultModal'
-import BidPanel from '@/components/auction/BidPanel'
 import Leaderboard from '@/components/auction/Leaderboard'
 import LiveVideoPlayer from '@/components/auction/LiveVideoPlayer'
 import type { Auction } from '@/types'
@@ -25,7 +24,7 @@ export default function LiveRoomPage() {
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['auction', auctionId],
     queryFn: () => auctionApi.getById(auctionId).then(r => r.data.data as Auction),
     refetchOnWindowFocus: true,
@@ -89,7 +88,7 @@ export default function LiveRoomPage() {
     setTimeout(() => setShowBidModal(true), 250)
   }
 
-  const handleBidSuccess = (actualAmount: number) => {
+  const handleBidSuccess = (_actualAmount: number) => {
     addNotif('bid_success', '出价成功！')
   }
 
@@ -130,16 +129,6 @@ export default function LiveRoomPage() {
   // 我的出价金额（从排行榜实时获取，刷新后依然保留）
   const myLastBid = state.leaderboard.find(e => e.userId === String(user?.id))?.amount || 0
 
-  if (isLoading && !data) {
-    return (
-      <div style={{
-        maxWidth: 480, margin: '0 auto', background: '#000',
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#fff'
-      }}>加载中...</div>
-    )
-  }
-
   const formatRemainTime = (ms: number) => {
     const total = Math.max(0, Math.floor(ms / 1000))
     const m = Math.floor(total / 60)
@@ -147,393 +136,351 @@ export default function LiveRoomPage() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
+  const formatCount = (n: number) => n >= 10000 ? (n / 10000).toFixed(1) + '万' : String(n)
+
+  const [liked, setLiked] = useState(false)
+  const [likeCount, setLikeCount] = useState(Math.floor(Math.random() * 8000 + 2000))
+  const handleLike = () => { setLiked(!liked); if (!liked) setLikeCount(c => c + 1) }
+
+  const anchorName = auction.product?.seller?.nickname || '主播'
+
+  if (isLoading && !data) {
+    return (
+      <div style={{
+        width: '100vw', height: '100vh', background: '#000',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#fff'
+      }}>加载中...</div>
+    )
+  }
+
   return (
     <div style={{
-      maxWidth: 480, margin: '0 auto', background: '#000',
-      minHeight: '100vh', position: 'relative', overflow: 'hidden',
-      display: 'flex', flexDirection: 'column'
+      width: '100vw', height: '100vh',
+      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      background: '#000'
     }}>
+      <div style={{
+        width: '100%', maxWidth: 400, height: '100vh',
+        position: 'relative', overflow: 'hidden'
+      }}>
       <style>{`
         @keyframes priceBounce {
           0% { transform: scale(1); }
-          30% { transform: scale(1.15); color: #ff2442; }
+          30% { transform: scale(1.15); color: #fe2c55; }
           100% { transform: scale(1); }
         }
         @keyframes livePulse {
-          0%,100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.6; transform: scale(1.4); }
+          0%,100% { opacity: 1; }
+          50% { opacity: 0.3; }
         }
         @keyframes floatUp {
           0% { opacity: 0; transform: translateY(10px); }
           100% { opacity: 1; transform: translateY(0); }
         }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        @keyframes likeAnim {
+          0% { transform: scale(1); }
+          25% { transform: scale(1.3); }
+          50% { transform: scale(0.9); }
+          100% { transform: scale(1); }
         }
-        .price-animate {
-          animation: priceBounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        @keyframes btnPulse {
+          0%,100% { box-shadow: 0 8px 32px rgba(254,44,85,0.4); }
+          50% { box-shadow: 0 8px 48px rgba(254,44,85,0.7); }
         }
-        .live-dot {
-          animation: livePulse 1.5s ease-in-out infinite;
-        }
-        .float-in {
-          animation: floatUp 0.5s ease;
-        }
-        .fade-in {
-          animation: fadeIn 0.3s ease;
-        }
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
-        }
+        .price-animate { animation: priceBounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+        .live-dot { animation: livePulse 1.5s ease-in-out infinite; }
+        .float-in { animation: floatUp 0.5s ease; }
+        .like-bounce { animation: likeAnim 0.4s ease; }
+        .bid-glow { animation: btnPulse 1.8s ease-in-out infinite; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
 
+      {/* 视频背景 — 覆盖中间内容区域（包括上下） */}
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <LiveVideoPlayer />
+      </div>
+
+      {/* Layer 1: 顶部栏 — 紧凑 */}
       <div style={{
-        position: 'relative', height: '50vh', minHeight: 320,
-        overflow: 'hidden', background: '#000'
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        paddingTop: 'max(env(safe-area-inset-top, 6px), 6px)'
       }}>
-        <LiveVideoPlayer
-          anchorName={auction.product?.seller?.nickname || '主播'}
-          onlineCount={state.onlineCount}
-        />
-
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 180,
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%)',
-          pointerEvents: 'none'
-        }} />
-
-        <div style={{
-          position: 'absolute', top: 16, left: 12, right: 12,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 10
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '6px 10px'
         }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            background: 'rgba(0,0,0,0.5)', borderRadius: 24,
-            padding: '6px 14px 6px 6px', backdropFilter: 'blur(10px)'
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => window.history.back()} style={{
+              width: 32, height: 32, borderRadius: '50%', border: 'none',
+              background: 'rgba(0,0,0,0.35)', color: '#fff', fontSize: 18,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0
+            }}>←</button>
             <div style={{
-              width: 48, height: 48, borderRadius: '50%',
-              background: 'linear-gradient(135deg, #ff6b8a 0%, #ff2442 100%)',
-              overflow: 'hidden',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#fff', fontSize: 20, fontWeight: 700
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(0,0,0,0.35)', borderRadius: 20,
+              padding: '3px 10px 3px 3px'
             }}>
-              {auction.product?.seller?.nickname?.[0] || '主'}
-            </div>
-            <div>
-              <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>
-                {auction.product?.seller?.nickname || '主播'}
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                {state.onlineCount || 6.8}万本场点赞
-              </div>
-            </div>
-            <div style={{
-              background: '#ff2442', color: '#fff', fontSize: 15,
-              padding: '6px 14px', borderRadius: 18, fontWeight: 700,
-              marginLeft: 8
-            }}>
-              关注
-            </div>
-          </div>
-
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(0,0,0,0.5)', borderRadius: 24,
-            padding: '6px 12px', backdropFilter: 'blur(10px)'
-          }}>
-            {[1,2,3].map(i => (
-              <div key={i} style={{
-                width: 40, height: 40, borderRadius: '50%',
-                background: '#333', border: '1.5px solid rgba(255,255,255,0.3)',
-                overflow: 'hidden',
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #fe2c55 0%, #ff6b8a 100%)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: 16, fontWeight: 600
-              }}>
-                {['A', 'B', 'C'][i-1]}
+                color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0
+              }}>{anchorName[0] || '主'}</div>
+              <div>
+                <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, lineHeight: 1.2 }}>
+                  {anchorName}
+                </div>
+                <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, lineHeight: 1.2 }}>
+                  {formatCount(state.onlineCount)}人
+                </div>
               </div>
-            ))}
-            <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>
-              {state.onlineCount || 2333}
-            </span>
+            </div>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
+              background: '#fe2c55', borderRadius: 10, padding: '3px 8px'
+            }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} className="live-dot" />
+              <span style={{ color: '#fff', fontSize: 10, fontWeight: 700 }}>直播</span>
+            </div>
           </div>
-        </div>
 
-        <div style={{
-          position: 'absolute', top: 72, left: 12, zIndex: 10,
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(0,0,0,0.5)', borderRadius: 16,
-          padding: '7px 14px'
-        }}>
-          <div style={{
-            width: 14, height: 14, borderRadius: '50%',
-            background: '#ff2442'
-          }} className="live-dot" />
-          <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>
-            直播中
-          </span>
-        </div>
-
-        <div style={{
-          position: 'absolute', top: 72, left: 130, zIndex: 10,
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(0,0,0,0.5)', borderRadius: 16,
-          padding: '7px 14px'
-        }}>
-          <span style={{ color: '#fbbf24', fontSize: 14, fontWeight: 700 }}>🔥热点</span>
-          <span style={{ color: '#fff', fontSize: 14 }}>明星大侦探</span>
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>小时榜第8名</span>
-        </div>
-
-        <div style={{
-          position: 'absolute', top: 72, right: 12, zIndex: 10,
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(0,0,0,0.5)', borderRadius: 16,
-          padding: '7px 14px'
-        }}>
-          <span style={{ color: '#fbbf24', fontSize: 18 }}>●</span>
-          <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>更多直播</span>
-          <span style={{ color: '#fff', fontSize: 16 }}>›</span>
+          <button style={{
+            width: 32, height: 32, borderRadius: '50%', border: 'none',
+            background: 'rgba(0,0,0,0.35)', color: '#fff', fontSize: 16,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0
+          }}>···</button>
         </div>
       </div>
 
-      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', background: '#000' }}>
-        <div style={{
-          margin: '-32px 16px 16px', position: 'relative', zIndex: 20
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 32,
-            padding: '24px 28px', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 16, color: '#999', marginBottom: 6 }}>
-                  {state.sold ? '落槌价' : isActive ? '当前最高价' : '起拍价'}
-                </div>
+      {/* Layer 2: 右侧操作按钮 — 靠上更紧凑 */}
+      <div style={{
+        position: 'absolute', right: 8, top: '28%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, zIndex: 20
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <button onClick={handleLike} style={{
+            width: 40, height: 40, borderRadius: '50%', border: 'none',
+            background: 'rgba(0,0,0,0.3)', color: liked ? '#fe2c55' : '#fff',
+            fontSize: 20, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(4px)'
+          }} className={liked ? 'like-bounce' : ''}>
+            {liked ? '❤️' : '🤍'}
+          </button>
+          <div style={{ color: '#fff', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
+            {formatCount(likeCount)}
+          </div>
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <button style={{
+            width: 40, height: 40, borderRadius: '50%', border: 'none',
+            background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 18,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(4px)'
+          }}>💬</button>
+          <div style={{ color: '#fff', fontSize: 10, marginTop: 2, fontWeight: 600 }}>
+            {state.comments.length}
+          </div>
+        </div>
+        <button style={{
+          width: 40, height: 40, borderRadius: '50%', border: 'none',
+          background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 17,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>↗</button>
+        <button style={{
+          width: 40, height: 40, borderRadius: '50%', border: 'none',
+          background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 18,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>🎁</button>
+      </div>
+
+      {/* 商品图 + 价格 + 倒计时 — 合并在一个框里 */}
+      {(() => {
+        try {
+          const imgs: string[] = JSON.parse(auction.product?.images || '[]')
+          const pname = auction.product?.name || ''
+          const hasImg = imgs.length > 0
+          return (
+            <div style={{
+              position: 'absolute', bottom: 138, left: 10, zIndex: 25,
+              display: 'flex', gap: 10,
+              background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              borderRadius: 14, padding: 10,
+              border: '1px solid rgba(255,255,255,0.06)',
+              maxWidth: '72%'
+            }}>
+              {hasImg && (
                 <div style={{
-                  fontSize: 56, fontWeight: 900, color: '#ff2442',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif'
-                }} className={priceAnimation ? 'price-animate' : ''}>
-                  ¥{currentPriceYuan.toFixed(0)}
+                  width: 80, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0
+                }}>
+                  <img src={imgs[0]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 16, color: '#999', marginBottom: 6 }}>
-                  {state.sold ? '竞拍结束' : '剩余时间'}
-                </div>
-                {state.sold ? (
-                  <div style={{ fontSize: 40, fontWeight: 900, color: '#ff2442' }}>
-                    已成交
-                  </div>
-                ) : state.cancelled ? (
-                  <div style={{ fontSize: 40, fontWeight: 900, color: '#999' }}>已取消</div>
-                ) : (
-                  <div style={{ 
-                    fontSize: 52, fontWeight: 900, color: '#fbbf24', 
-                    fontFamily: 'monospace', textShadow: '0 0 20px rgba(251,191,36,0.4)' 
-                  }}>
-                    {formatRemainTime(state.remainMs)}
+              )}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4 }}>
+                {pname && (
+                  <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>
+                    {pname}
                   </div>
                 )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {isActive && !state.sold && (
-          <div style={{ padding: '0 16px 12px' }}>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => {
-                  setSelectedAuction(auction)
-                  setShowBidModal(true)
-                }}
-                style={{
-                  flex: 1, padding: '18px 0', borderRadius: 999,
-                  border: 'none', 
-                  background: 'linear-gradient(90deg, #ff3344 0%, #ff5566 100%)',
-                  color: '#fff', fontSize: 20, fontWeight: 800, cursor: 'pointer',
-                  boxShadow: '0 6px 24px rgba(255,51,68,0.4)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-                }}>
-                🔥 出价
-              </button>
-              <button
-                onClick={() => setShowLeaderboard(true)}
-                style={{
-                  flex: 1, padding: '18px 0', borderRadius: 999,
-                  border: 'none', 
-                  background: 'rgba(30,40,60,0.8)',
-                  color: '#fbbf24', fontSize: 20, fontWeight: 800, cursor: 'pointer',
-                  backdropFilter: 'blur(8px)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-                }}>
-                  🏆 排行榜
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 商品图片 */}
-        {(() => {
-          try {
-            const imgs: string[] = JSON.parse(auction.product?.images || '[]')
-            if (imgs.length > 0) {
-              return (
-                <div style={{
-                  margin: '0 16px 12px', borderRadius: 16,
-                  overflow: 'hidden', height: 200,
-                  background: 'rgba(255,255,255,0.05)',
-                  position: 'relative'
-                }}>
-                  <img src={imgs[0]} alt={auction.product?.name || ''}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <div style={{
-                    position: 'absolute', top: '50%', right: 0,
-                    transform: 'translateY(-50%)',
-                    padding: '12px 18px',
-                    background: 'rgba(0,0,0,0.92)',
-                    borderRadius: '20px 0 0 20px',
-                    maxWidth: '65%',
-                    border: '1px solid rgba(255,255,255,0.15)'
-                  }}>
-                    <span style={{ color: '#fff', fontSize: 16, fontWeight: 700, textAlign: 'right', display: 'block' }}>
-                      {auction.product?.name || ''}
-                    </span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, marginBottom: 1 }}>
+                      {state.sold ? '落槌价' : isActive ? '当前最高价' : '起拍价'}
+                    </div>
+                    <div style={{
+                      fontSize: 24, fontWeight: 900, color: state.sold ? '#25f4ee' : '#fe2c55',
+                      lineHeight: 1.1
+                    }} className={priceAnimation ? 'price-animate' : ''}>
+                      ¥{currentPriceYuan.toFixed(0)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, marginBottom: 1 }}>
+                      {state.sold ? '已成交' : '剩余'}
+                    </div>
+                    {state.sold ? (
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#25f4ee' }}>✓</div>
+                    ) : state.cancelled ? (
+                      <div style={{ fontSize: 15, fontWeight: 800, color: 'rgba(255,255,255,0.4)' }}>—</div>
+                    ) : (
+                      <div style={{ fontSize: 17, fontWeight: 900, color: '#fbbf24', fontFamily: 'monospace' }}>
+                        {formatRemainTime(state.remainMs)}
+                      </div>
+                    )}
                   </div>
                 </div>
-              )
-            }
-          } catch {}
-          return null
-        })()}
-
-        {state.extendCount > 0 && (
-          <div style={{
-            margin: '0 16px 12px', padding: '12px 16px',
-            background: 'rgba(34,197,94,0.12)', borderRadius: 16,
-            color: '#22c55e', fontSize: 14, fontWeight: 600,
-            textAlign: 'center', border: '1px solid rgba(34,197,94,0.2)'
-          }}>
-            已延时 {state.extendCount} 次，最后关头有人出价！
-          </div>
-        )}
-
-        {/* 评论区 — 底部浮层，可滚动查看历史 */}
-        <div style={{
-          position: 'absolute', left: 0, right: 0,
-          bottom: 76, maxHeight: '40%', zIndex: 30,
-          padding: '24px 12px 0',
-          overflowY: 'scroll',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          display: 'flex', flexDirection: 'column',
-          WebkitOverflowScrolling: 'touch',
-          background: 'linear-gradient(transparent, rgba(0,0,0,0.15) 30%)'
-        }} ref={commentsContainerRef}
-        className="hide-scrollbar">
-          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 4 }}>
-            {state.comments.map((comment, i) => (
-              <div key={`${comment.timestamp}-${i}`} className="float-in" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 10,
-                background: 'rgba(0,0,0,0.5)', borderRadius: 22,
-                padding: '6px 14px 6px 6px', alignSelf: 'flex-start',
-                backdropFilter: 'blur(8px)',
-                maxWidth: '85%'
-              }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  background: `linear-gradient(135deg, hsl(${(comment.user_id * 137) % 360}, 80%, 60%), hsl(${(comment.user_id * 137 + 40) % 360}, 80%, 50%))`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0
-                }}>
-                  {comment.nickname?.[0] || 'U'}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ color: '#fbbf24', fontSize: 15, fontWeight: 700, lineHeight: 1.2 }}>
-                    {comment.nickname}
-                  </span>
-                  <span style={{ color: '#fff', fontSize: 16, lineHeight: 1.3 }}>
-                    {comment.text}
-                  </span>
+                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9 }}>
+                  {leaderNickname ? (
+                    <span>领先 <span style={{ color: '#fbbf24', fontWeight: 700 }}>{leaderNickname}</span></span>
+                  ) : (
+                    <span>暂无出价</span>
+                  )}
                 </div>
               </div>
-            ))}
-            <div ref={commentsEndRef} />
-          </div>
-        </div>
+            </div>
+          )
+        } catch {} return null
+      })()}
 
-        <div style={{
-          padding: '8px 12px 24px',
-          display: 'flex', alignItems: 'center', gap: 12
-        }}>
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}
-            placeholder="说点什么..."
-            maxLength={200}
-            style={{
-              flex: 1, background: 'rgba(255,255,255,0.12)', borderRadius: 28,
-              padding: '12px 20px', color: '#fff',
-              fontSize: 16, border: 'none', outline: 'none'
-            }}
-          />
-
-          <div style={{
-              display: 'flex', alignItems: 'center', gap: 12
+      {/* Layer 4: 评论区 — 更多空间 */}
+      <div style={{
+        position: 'absolute', left: 10, right: 65,
+        bottom: 75, maxHeight: '35%', zIndex: 30,
+        overflowY: 'scroll', scrollbarWidth: 'none', msOverflowStyle: 'none',
+        display: 'flex', flexDirection: 'column',
+        WebkitOverflowScrolling: 'touch'
+      }} ref={commentsContainerRef}
+      className="hide-scrollbar">
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 2 }}>
+          {state.comments.map((comment, i) => (
+            <div key={`${comment.timestamp}-${i}`} className="float-in" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(0,0,0,0.4)', borderRadius: 18,
+              padding: '5px 10px 5px 5px', alignSelf: 'flex-start',
+              backdropFilter: 'blur(4px)', maxWidth: '100%'
             }}>
-              <button
-                onClick={handleSendComment}
-                style={{
-                  width: 52, height: 52, borderRadius: '50%',
-                  border: 'none', background: 'linear-gradient(135deg, #ff2442 0%, #ff6b8a 100%)',
-                  color: '#fff', fontSize: 22, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 4px 16px rgba(255,36,66,0.5)'
-                }}>
-                ✉️
-              </button>
-              <button
-                onClick={() => setShowProductList(true)}
-                style={{
-                  width: 52, height: 52, borderRadius: '50%',
-                  border: 'none', background: 'rgba(255,255,255,0.12)',
-                  color: '#fff', fontSize: 24, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                🛒
-              </button>
-            <button style={{
-              width: 52, height: 52, borderRadius: '50%',
-              border: 'none', background: 'rgba(255,255,255,0.12)',
-              color: '#fff', fontSize: 24, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              😊
-            </button>
-            <button style={{
-              width: 52, height: 52, borderRadius: '50%',
-              border: 'none', background: 'rgba(255,255,255,0.12)',
-              color: '#fff', fontSize: 24, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              ❤️
-            </button>
-            <button style={{
-              width: 52, height: 52, borderRadius: '50%',
-              border: 'none', background: 'rgba(255,255,255,0.12)',
-              color: '#fff', fontSize: 24, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              🎁
-            </button>
-          </div>
+              <div style={{
+                width: 24, height: 24, borderRadius: '50%',
+                background: `linear-gradient(135deg, hsl(${(comment.user_id * 137) % 360}, 70%, 55%), hsl(${(comment.user_id * 137 + 40) % 360}, 70%, 45%))`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0
+              }}>{comment.nickname?.[0] || 'U'}</div>
+              <div>
+                <span style={{ color: '#fbbf24', fontSize: 12, fontWeight: 700, marginRight: 4 }}>
+                  {comment.nickname}
+                </span>
+                <span style={{ color: '#fff', fontSize: 13 }}>{comment.text}</span>
+              </div>
+            </div>
+          ))}
+          <div ref={commentsEndRef} />
         </div>
       </div>
 
+      {/* Layer 5: 底部输入栏 — 更紧凑 */}
+      <div style={{
+        position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 35,
+        padding: '6px 10px max(env(safe-area-inset-bottom, 8px), 8px)',
+        background: 'linear-gradient(transparent, rgba(0,0,0,0.4) 30%)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="text" value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}
+            placeholder="说点什么..." maxLength={200}
+            style={{
+              flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 20,
+              padding: '8px 14px', color: '#fff', fontSize: 13,
+              border: 'none', outline: 'none'
+            }}
+          />
+          <button onClick={() => setShowProductList(true)} style={{
+            width: 34, height: 34, borderRadius: '50%', border: 'none',
+            background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 16,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0
+          }}>🛒</button>
+          <button onClick={handleSendComment} style={{
+            width: 34, height: 34, borderRadius: '50%', border: 'none',
+            background: '#fe2c55', color: '#fff', fontSize: 14,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0
+          }}>✉</button>
+        </div>
+      </div>
+
+      {/* Layer 6: 出价按钮 — 底部居中 */}
+      {isActive && !state.sold && (
+        <div style={{
+          position: 'absolute', bottom: 56, left: '50%', transform: 'translateX(-50%)', zIndex: 40,
+          display: 'flex', gap: 8, alignItems: 'center'
+        }}>
+          <button
+            onClick={() => { setSelectedAuction(auction); setShowBidModal(true) }}
+            className="bid-glow"
+            style={{
+              padding: '12px 36px', borderRadius: 999, border: 'none',
+              background: 'linear-gradient(90deg, #fe2c55 0%, #ff6b8a 100%)',
+              color: '#fff', fontSize: 17, fontWeight: 800, cursor: 'pointer',
+              boxShadow: '0 6px 24px rgba(254,44,85,0.4)',
+              whiteSpace: 'nowrap'
+            }}>
+            🔥 出价
+          </button>
+          <button
+            onClick={() => setShowLeaderboard(true)}
+            style={{
+              width: 44, height: 44, borderRadius: '50%', border: 'none',
+              background: 'rgba(255,255,255,0.08)', color: '#fbbf24',
+              fontSize: 18, cursor: 'pointer', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+            🏆
+          </button>
+        </div>
+      )}
+
+      {/* 延时通知 */}
+      {state.extendCount > 0 && (
+        <div style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 15,
+          padding: '6px 14px', borderRadius: 20,
+          background: 'rgba(34,197,94,0.12)', backdropFilter: 'blur(8px)',
+          color: '#22c55e', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+          border: '1px solid rgba(34,197,94,0.15)'
+        }}>
+          ⏱ 延时 {state.extendCount} 次
+        </div>
+      )}
+
+      {/* Modals (所有弹窗保持 position: fixed，不受父容器影响) */}
       {showProductList && (
         <ProductListPanel
           currentAuctionId={auctionId}
@@ -551,12 +498,12 @@ export default function LiveRoomPage() {
         <BidModal
           auction={selectedAuction}
           currentPrice={selectedAuction.id === auctionId ? state.currentPrice : selectedAuction.current_price}
-          remainMs={selectedAuction.id === auctionId ? state.remainMs : 600000}
+          remainMs={selectedAuction.id === auctionId ? state.remainMs : Math.max(0, new Date(selectedAuction.end_time || '').getTime() - Date.now())}
           sold={selectedAuction.id === auctionId ? state.sold : selectedAuction.status === 'sold'}
-          myLastBid={myLastBid}
-          winnerId={state.soldData?.winner_id}
+          myLastBid={selectedAuction.id === auctionId ? myLastBid : 0}
+          winnerId={selectedAuction.id === auctionId ? state.soldData?.winner_id : undefined}
           userId={user?.id}
-          leaderNickname={leaderNickname}
+          leaderNickname={selectedAuction.id === auctionId ? leaderNickname : undefined}
           onBidSuccess={handleBidSuccess}
           onBidFail={(msg) => addNotif('overtaken', msg)}
           onClose={() => setShowBidModal(false)}
@@ -571,6 +518,7 @@ export default function LiveRoomPage() {
           onClose={() => setShowResultModal(false)}
         />
       )}
+      </div>
     </div>
   )
 }

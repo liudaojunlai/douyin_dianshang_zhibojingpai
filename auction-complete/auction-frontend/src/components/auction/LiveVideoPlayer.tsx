@@ -9,18 +9,11 @@ const FALLBACK_VIDEOS = [
 ]
 
 interface LiveVideoPlayerProps {
-  /** 自定义视频 URL，留空则使用默认演示视频 */
   videoUrl?: string
-  /** 主播昵称（用于画面中央水印） */
-  anchorName?: string
-  /** 在线人数 */
-  onlineCount?: number
 }
 
 export default function LiveVideoPlayer({
   videoUrl,
-  anchorName = '直播间',
-  onlineCount = 0,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoReady, setVideoReady] = useState(false)
@@ -77,7 +70,7 @@ export default function LiveVideoPlayer({
   if (videoError) {
     return (
       <div style={{
-        width: '100%', height: '100%',
+        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
         color: '#666', fontSize: 16, flexDirection: 'column', gap: 12
@@ -100,56 +93,24 @@ export default function LiveVideoPlayer({
   }
 
   return (
-    <div style={{
-      width: '100%', height: '100%', position: 'relative',
-      overflow: 'hidden', background: '#000'
-    }}>
-      <video
-        ref={videoRef}
-        src={currentSrc}
-        muted
-        loop
-        playsInline
-        preload="auto"
-        onError={handleError}
-        style={{
-          width: '100%', height: '100%',
-          objectFit: 'cover',
-          opacity: videoReady ? 1 : 0,
-          transition: 'opacity 0.5s ease'
-        }}
-      />
-
-      {/* 视频加载中的骨架屏 */}
-      {!videoReady && (
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: '#111'
-        }}>
-          <div style={{
-            width: 48, height: 48, border: '3px solid rgba(255,255,255,0.1)',
-            borderTopColor: '#ff2442', borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite'
-          }} />
-        </div>
-      )}
-
-      {/* 底部渐变遮罩，让 UI 文字更清晰 */}
-      <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%',
-        background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
-        pointerEvents: 'none'
-      }} />
-
-      {/* 左上角视频源水印 */}
-      <div style={{
-        position: 'absolute', bottom: 12, left: 12,
-        color: 'rgba(255,255,255,0.3)', fontSize: 11,
-        pointerEvents: 'none', letterSpacing: 1
-      }}>
-        {videoReady ? '📡 LIVE · 模拟直播画面' : '⏳ 加载中...'}
-      </div>
-    </div>
+    <video
+      ref={videoRef}
+      src={currentSrc}
+      muted
+      loop
+      playsInline
+      preload="auto"
+      onError={handleError}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        opacity: videoReady ? 1 : 0,
+        transition: 'opacity 0.5s ease'
+      }}
+    />
   )
 }
